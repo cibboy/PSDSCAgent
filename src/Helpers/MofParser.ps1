@@ -157,7 +157,6 @@ function ConvertFrom-MofFile {
 				return $ret
 			}
 			catch {
-				Write-Warning $_.Exception.Message
 				Write-Warning 'Unable to decrypt password.'
 			}
 		}
@@ -171,13 +170,17 @@ function ConvertFrom-MofFile {
 		}
 		# int
 		try {
-			$ret = [Convert]::ToInt32($Value)
-			return $ret
+			$ret = 0
+			if ([int]::TryParse($Value, [ref]$ret)) {
+				return $ret
+			}
 		} catch {}
 		# bool
 		try {
-			$ret = [Convert]::ToBoolean($Value)
-			return $ret
+			$ret = $false
+			if ([bool]::TryParse($Value, [ref]$ret)) {
+				return $ret
+			}
 		} catch {}
 
 		return $Value
