@@ -27,7 +27,7 @@ function ConvertFrom-MofFile {
 		Array
 	}
 
-	$ParsingStatus = [PsCustomObject]@{
+	$script:ParsingStatus = [PsCustomObject]@{
 		Status = [StatusType]::None
 		PreviousStatus = [StatusType]::None
 		Properties = @{}
@@ -43,23 +43,23 @@ function ConvertFrom-MofFile {
 	}
 
 	function ResetParsingStatus {
-		$ParsingStatus.Status = [StatusType]::None
-		$ParsingStatus.PreviousStatus = [StatusType]::None
-		$ParsingStatus.Properties = @{}
-		$ParsingStatus.ActivePropertyName = $null
-		$ParsingStatus.BlockId = $null
+		$script:ParsingStatus.Status = [StatusType]::None
+		$script:ParsingStatus.PreviousStatus = [StatusType]::None
+		$script:ParsingStatus.Properties = @{}
+		$script:ParsingStatus.ActivePropertyName = $null
+		$script:ParsingStatus.BlockId = $null
 	}
 
 	function StartMetadata {
-		$ParsingStatus.Status = [StatusType]::Metadata
+		$script:ParsingStatus.Status = [StatusType]::Metadata
 	}
 	function EndMetadata {
-		if ($ParsingStatus.Status -ne [StatusType]::Metadata) {
+		if ($script:ParsingStatus.Status -ne [StatusType]::Metadata) {
 			throw 'Things got thrown out of sequence in initial metadata block.'
 		}
 
-		foreach ($p in $ParsingStatus.Properties.Keys) {
-			$ParsingStatus.Result.Metadata | Add-Member -NotePropertyName $p -NotePropertyValue $ParsingStatus.Properties[$p]
+		foreach ($p in $script:ParsingStatus.Properties.Keys) {
+			$script:ParsingStatus.Result.Metadata | Add-Member -NotePropertyName $p -NotePropertyValue $script:ParsingStatus.Properties[$p]
 		}
 
 		ResetParsingStatus
@@ -70,15 +70,15 @@ function ConvertFrom-MofFile {
 			[string]$Id
 		)
 
-		$ParsingStatus.Status = [StatusType]::Credential
-		$ParsingStatus.BlockId = $Id
+		$script:ParsingStatus.Status = [StatusType]::Credential
+		$script:ParsingStatus.BlockId = $Id
 	}
 	function EndCredential {
 		$cred = [PsCustomObject]@{}
-		foreach ($p in $ParsingStatus.Properties.Keys) {
-			$cred | Add-Member -NotePropertyName $p -NotePropertyValue $ParsingStatus.Properties[$p]
+		foreach ($p in $script:ParsingStatus.Properties.Keys) {
+			$cred | Add-Member -NotePropertyName $p -NotePropertyValue $script:ParsingStatus.Properties[$p]
 		}
-		$ParsingStatus.Result.Credentials.Add($ParsingStatus.BlockId, $cred)
+		$script:ParsingStatus.Result.Credentials.Add($script:ParsingStatus.BlockId, $cred)
 	}
 	function StartResource {
 		Param (
@@ -86,8 +86,8 @@ function ConvertFrom-MofFile {
 			[string]$Id
 		)
 
-		$ParsingStatus.Status = [StatusType]::Resource
-		$ParsingStatus.BlockId = $Id
+		$script:ParsingStatus.Status = [StatusType]::Resource
+		$script:ParsingStatus.BlockId = $Id
 	}
 	function EndResource {
 		$resource = [PsCustomObject]@{
@@ -99,8 +99,8 @@ function ConvertFrom-MofFile {
 			}
 			Parameters = @{}
 		}
-		foreach ($p in $ParsingStatus.Properties.Keys) {
-			$value = $ParsingStatus.Properties[$p]
+		foreach ($p in $script:ParsingStatus.Properties.Keys) {
+			$value = $script:ParsingStatus.Properties[$p]
 
 			if ($p -eq 'ConfigurationName') { continue }
 			elseif ($p -eq 'ResourceID') { $resource.Id = $value }
@@ -110,13 +110,13 @@ function ConvertFrom-MofFile {
 			else { $resource.Parameters[$p] = $value }
 		}
 
-		$ParsingStatus.Result.Resources[$resource.Id] = $resource
-		$ParsingStatus.Result.ResourceList += $resource.Id
+		$script:ParsingStatus.Result.Resources[$resource.Id] = $resource
+		$script:ParsingStatus.Result.ResourceList += $resource.Id
 	}
 	function StartArray {
-		$ParsingStatus.PreviousStatus = $ParsingStatus.Status
-		$ParsingStatus.Status = [StatusType]::Array
-		$ParsingStatus.Properties[$ParsingStatus.ActivePropertyName] = @()
+		$script:ParsingStatus.PreviousStatus = $script:ParsingStatus.Status
+		$script:ParsingStatus.Status = [StatusType]::Array
+		$script:ParsingStatus.Properties[$script:ParsingStatus.ActivePropertyName] = @()
 	}
 	function AddToArray {
 		Param (
@@ -124,10 +124,10 @@ function ConvertFrom-MofFile {
 			$Object
 		)
 
-		$ParsingStatus.Properties[$ParsingStatus.ActivePropertyName] += $Object
+		$script:ParsingStatus.Properties[$script:ParsingStatus.ActivePropertyName] += $Object
 	}
 	function EndArray {
-		$ParsingStatus.Status = $ParsingStatus.PreviousStatus
+		$script:ParsingStatus.Status = $script:ParsingStatus.PreviousStatus
 	}
 	function ParsePropertyValue {
 		Param (
@@ -163,9 +163,9 @@ function ConvertFrom-MofFile {
 		# Object reference
 		if ($Value -like '$*') {
 			# If a password reference is found, return it. Otherwise continue with other type attempts.
-			if ($null -ne $ParsingStatus.Result.Credentials[$Value]) {
-				$password = ConvertTo-SecureString $ParsingStatus.Result.Credentials[$Value].Password -AsPlainText -Force
-				return New-Object System.Management.Automation.PSCredential ($ParsingStatus.Result.Credentials[$Value].UserName, $password)
+			if ($null -ne $script:ParsingStatus.Result.Credentials[$Value]) {
+				$password = ConvertTo-SecureString $script:ParsingStatus.Result.Credentials[$Value].Password -AsPlainText -Force
+				return New-Object System.Management.Automation.PSCredential ($script:ParsingStatus.Result.Credentials[$Value].UserName, $password)
 			}
 		}
 		# int
@@ -193,7 +193,7 @@ function ConvertFrom-MofFile {
 
 		try {
 			# Handle arrays differently from rest of properties.
-			if ($ParsingStatus.Status -eq [StatusType]::Array) {
+			if ($script:ParsingStatus.Status -eq [StatusType]::Array) {
 				# Remove comma at end of line.
 				if ($Line -like '*,') {
 					AddToArray (ParsePropertyValue $Line.Substring(0, $Line.Length - 1))
@@ -213,7 +213,7 @@ function ConvertFrom-MofFile {
 
 				# Get property name.
 				$name = $Line.Substring(0, $index).Trim()
-				$ParsingStatus.ActivePropertyName = $name
+				$script:ParsingStatus.ActivePropertyName = $name
 
 				# Get property value.
 				$value = $Line.Substring($index + 1).Trim()
@@ -232,7 +232,7 @@ function ConvertFrom-MofFile {
 				else {
 					# Remove final semicolon from value.
 					if ($value -like '*;') { $value = $value.Substring(0, $value.Length - 1).Trim() }
-					$ParsingStatus.Properties[$name] = (ParsePropertyValue $value)
+					$script:ParsingStatus.Properties[$name] = (ParsePropertyValue $value)
 				}
 			}
 		}
@@ -261,22 +261,22 @@ function ConvertFrom-MofFile {
 		else { StartResource -Id $id }
 	}
 	function EndBlock {
-		if ($ParsingStatus.Status -eq [StatusType]::None) {
+		if ($script:ParsingStatus.Status -eq [StatusType]::None) {
 			throw "Things got thrown out of sequence in $in."
 		}
 
 		# Ending property array.
-		if ($ParsingStatus.Status -eq [StatusType]::Array) {
-			$ParsingStatus.ActivePropertyName = $null
-			$ParsingStatus.Status = [StatusType]::Resource
+		if ($script:ParsingStatus.Status -eq [StatusType]::Array) {
+			$script:ParsingStatus.ActivePropertyName = $null
+			$script:ParsingStatus.Status = [StatusType]::Resource
 		}
 		else {
 			# Ending metadata at the end of the document.
-			if ($ParsingStatus.Status -eq [StatusType]::Metadata) { EndMetadata }
+			if ($script:ParsingStatus.Status -eq [StatusType]::Metadata) { EndMetadata }
 			# Ending credential block.
-			elseif ($ParsingStatus.Status -eq [StatusType]::Credential) { EndCredential }
+			elseif ($script:ParsingStatus.Status -eq [StatusType]::Credential) { EndCredential }
 			# Ending resource block.
-			elseif ($ParsingStatus.Status -eq [StatusType]::Resource) { EndResource }
+			elseif ($script:ParsingStatus.Status -eq [StatusType]::Resource) { EndResource }
 
 			ResetParsingStatus
 		}
@@ -300,7 +300,7 @@ function ConvertFrom-MofFile {
 		# Start of property block (after instance of).
 		elseif ($l -eq '{') {
 			# Left curly brace indicates beginning of block. Make sure we are actually into one.
-			if ($ParsingStatus.Status -eq [StatusType]::None) {
+			if ($script:ParsingStatus.Status -eq [StatusType]::None) {
 				throw 'Things got thrown out of sequence at the beginning of a block.'
 			}
 		}
@@ -309,8 +309,8 @@ function ConvertFrom-MofFile {
 	}
 
 	return [PsCustomObject]@{
-		Metadata = $ParsingStatus.Result.Metadata
-		ResourceList = $ParsingStatus.Result.ResourceList
-		Resources = $ParsingStatus.Result.Resources
+		Metadata = $script:ParsingStatus.Result.Metadata
+		ResourceList = $script:ParsingStatus.Result.ResourceList
+		Resources = $script:ParsingStatus.Result.Resources
 	}
 }
