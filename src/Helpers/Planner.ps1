@@ -1,7 +1,7 @@
 <#
 TODO: help
 #>
-function Get-SequentialSorting {
+function Get-DscResourceSequentialSorting {
 	[CmdletBinding()]
 	Param(
 		[Parameter(Mandatory = $true)]
