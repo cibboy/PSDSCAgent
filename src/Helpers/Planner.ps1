@@ -3,20 +3,31 @@ TODO: help
 #>
 function Get-DscResourceSequentialSorting {
 	[CmdletBinding()]
+	[OutputType([System.Object[]])]
 	Param(
 		[Parameter(Mandatory = $true)]
-		[ValidateScript({
-			return ($null -ne $_.ResourceList -and $null -ne $_.Resources)
-		})]
+		[ValidateScript(
+			{
+				return ($null -ne $_.ResourceList -and $null -ne $_.Resources)
+			}
+		)]
 		[PsCustomObject]$Configuration
 	)
 
 	$script:plan = @()
 
-	# Recursive function to compute an orderd sequence of resources, considering
-	# out-of-order dependencies.
-	# This approach does not identify loops, but that is performed by the mof compiler in
-	# Windows Powershell, so for now we're ok.
+	<#
+		.SYNOPSIS
+		Recursive function to compute an orderd sequence of resources, considering out-of-order dependencies.
+		.DESCRIPTION
+		Recursive function to compute an orderd sequence of resources, considering out-of-order dependencies.
+		This approach does not identify loops, but that is performed by the mof compiler in Windows Powershell,
+		so for now we're ok.
+		.PARAMETER ResourceId
+		The ID of the resource for which we want to check on parameter DependsOn.
+		.PARAMETER Configuration
+		The full configuration object (internal representation of a DSC configuration) to use for dependency search.
+	#>
 	function HandleDependencies {
 		[CmdletBinding()]
 		Param (
@@ -35,7 +46,7 @@ function Get-DscResourceSequentialSorting {
 				HandleDependencies -ResourceId $d -Configuration $Configuration
 			}
 		}
-		
+
 		# If no dependencies are found, or dependencies have been recursively added
 		# to the plane, add the id to the sequence if not already in (base case).
 		if ($script:plan -notcontains $ResourceId) {
