@@ -1,8 +1,10 @@
-<#
+﻿<#
 TODO: help
 #>
 function Invoke-DscConfiguration {
 	[CmdletBinding()]
+	[OutputType([bool])]
+	[OutputType([void])]
 	Param(
 		[Parameter(Mandatory = $true)]
 		[ValidateScript({ Test-Path $_ })]
@@ -55,7 +57,7 @@ function Invoke-DscConfiguration {
 			}
 
 			if ($lcm.RebootNodeIfNeeded) {
-				Write-Warning 'It is strongly suggested that the LCM not control the reboot, so the PSDSCAgent handle it.'
+				Write-Warning 'It is strongly suggested that the LCM not control the reboot, so the PSDSCAgent can handle it.'
 				#TODO: make sure that this setting actually has impact if the LCM is in disabled
 			}
 		}
@@ -84,7 +86,7 @@ function Invoke-DscConfiguration {
 			# Make sure dependencies completed ok.
 			$canContinue = $true
 			foreach ($d in $resource.Parameters['DependsOn']) {
-				if ($execution[$d].Status -ne 'Ok') {
+				if ($execution[$d].Status -ne 'Ok' -and $Mode -eq 'Apply') {
 					$canContinue = $false
 					Write-Warning "Resource $r cannot run because dependency $d is not met ($($execution[$d].Status))."
 				}
@@ -123,6 +125,8 @@ function Invoke-DscConfiguration {
 					$test = Invoke-DscResource -Name $resource.Resource.Name -ModuleName $module -Method Test -Property $params -ErrorAction Stop
 
 					if (!$test.InDesiredState) {
+						$execution[$r].Status = 'Failed'
+
 						if ($PowershellCore) {
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is not in desired state."
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
@@ -132,6 +136,8 @@ function Invoke-DscConfiguration {
 							# If the resource has drifted, invoke it with set.
 							if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Set  ] [$r]" }
 							$set = Invoke-DscResource -Name $resource.Resource.Name -ModuleName $module -Method Set -Property $params -ErrorAction Stop
+
+							$execution[$r].Status = 'Ok'
 
 							if ($PowershellCore) {
 								Write-Verbose "[$($configuration.Metadata.Name)] [ End   Set  ] [$r] Resource has been set to desired state."
@@ -148,13 +154,13 @@ function Invoke-DscConfiguration {
 						}
 					}
 					else {
+						$execution[$r].Status = 'Ok'
+
 						if ($PowershellCore) {
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is in desired state."
 						}
 					}
-
-					$execution[$r].Status = 'Ok'
 				}
 				catch {
 					# If testing or setting ends in error, remember that this resource did not complete.
@@ -176,6 +182,17 @@ function Invoke-DscConfiguration {
 		}
 		else {
 			Write-Verbose 'Invoke-DscConfiguration terminated successfully.'
+		}
+
+		# If validation mode is requested, return true or false according to configuration drift.
+		if ($Mode -eq 'Validate') {
+			foreach ($r in $plan) {
+				if ($execution[$r].Status -ne 'Ok') {
+					return $false
+				}
+			}
+
+			return $true
 		}
 	}
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 TODO: help
 #>
 function ConvertFrom-MofFile {
@@ -118,6 +118,11 @@ function ConvertFrom-MofFile {
 			$script:ParsingStatus.Status = $script:ParsingStatus.PreviousStatus
 		}
 		function ParsePropertyValue {
+			[Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+				'PSAvoidUsingConvertToSecureStringWithPlainText',
+				'',
+				Justification = 'Needed to convert encruypted credentials coming from the mof file'
+			)]
 			Param (
 				[Parameter(Mandatory = $true)]
 				[string]$Value,

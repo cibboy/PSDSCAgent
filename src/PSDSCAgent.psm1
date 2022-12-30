@@ -1,4 +1,4 @@
-# Get public and private function definition files.
+﻿# Get public and private function definition files.
 $Helpers = @(Get-ChildItem -Path $PSScriptRoot\Helpers -Recurse -Filter "*.ps1") | Sort-Object Name
 #$Private = @(Get-ChildItem -Path $PSScriptRoot\Private -Recurse -Filter "*.ps1") | Sort-Object Name
 $Public = @(Get-ChildItem -Path $PSScriptRoot\Public -Recurse -Filter "*.ps1") | Sort-Object Name
