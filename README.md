@@ -15,7 +15,7 @@ Details will be added as the agent is developed.
 
 ## Usage
 
-This module is still in the very early stages of development. So far it exposes only a limited Invoke-DscConfiguration command, which can be called from Powershell 5.1 and Powershell 7+. There are still several limitations on what it can run (for example the File and Log resources are not available in Powershell 7+ if you are using PSDesiredStateConfiguration 2+) and probably an ncountable number of bugs (if you find some, report them, mush appreciated!)
+This module is still in the very early stages of development. So far it exposes only a limited Invoke-DscConfiguration command, which can be called from Powershell 5.1 and Powershell 7+. There are still several limitations on what it can run (for example the File and Log resources are not available in Powershell 7+ if you are using PSDesiredStateConfiguration 2+) and probably an uncountable number of bugs (if you find some, report them, mush appreciated!)
 
 ### Examples
 

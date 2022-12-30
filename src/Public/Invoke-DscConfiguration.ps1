@@ -29,11 +29,34 @@ function Invoke-DscConfiguration {
 		if ($PSVersionTable.PSVersion.Major -le 5) { $PowershellCore = $false }
 
 		$ModernDSC = $false
-		$psdscModules = Get-Module PSDesiredStateConfiguration -ListAvailable
-		foreach ($m in $psdscModules) {
+		foreach ($m in (Get-Module PSDesiredStateConfiguration -ListAvailable)) {
 			if ($m.Version.Major -gt 1) {
 				$ModernDSC = $true
 				break
+			}
+		}
+
+		# Make sure Invoke-DscResource is enabled in Powershell Core, since
+		# it's an experimental feature and it's disabled by default.
+		if ($PowershellCore) {
+			if (-not (Get-ExperimentalFeature PSDesiredStateConfiguration.InvokeDscResource | Select-Object -ExpandProperty Enabled)) {
+				throw 'Experimental feature PSDesiredStateConfiguration.InvokeDscResource must be enabled to use this command. Use "Enable-ExperimentalFeature PSDesiredStateConfiguration.InvokeDscResource" and restart the Powershell session.'
+			}
+		}
+
+		# If running in a session that uses DSC 1.1, warn if the LCM is configured
+		# in a way that might interfere.
+		if (!$ModernDSC) {
+			$lcm = Get-DscLocalConfigurationManager
+
+			if ($lcm.RefreshMode -ine 'Disabled') {
+				Write-Warning 'It is strongly suggested that the LCM is disabled when using the PSDSCAgent.'
+				#TODO: make sure that Get-DscResource works when the LCM is disabled
+			}
+
+			if ($lcm.RebootNodeIfNeeded) {
+				Write-Warning 'It is strongly suggested that the LCM not control the reboot, so the PSDSCAgent handle it.'
+				#TODO: make sure that this setting actually has impact if the LCM is in disabled
 			}
 		}
 	}
