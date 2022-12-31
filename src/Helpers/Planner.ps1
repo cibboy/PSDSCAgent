@@ -1,4 +1,4 @@
-<#
+﻿<#
 TODO: help
 #>
 function Get-DscResourceSequentialSorting {

@@ -15,7 +15,7 @@ Details will be added as the agent is developed.
 
 ## Usage
 
-This module is still in the very early stages of development. So far it exposes only a limited Invoke-DscConfiguration command, which can be called from Powershell 5.1 and Powershell 7+. There are still several limitations on what it can run (for example the File and Log resources are not available in Powershell 7+ if you are using PSDesiredStateConfiguration 2+) and probably an ncountable number of bugs (if you find some, report them, mush appreciated!)
+This module is still in the very early stages of development. So far it exposes only a limited Invoke-DscConfiguration command, which can be called from Powershell 5.1 and Powershell 7+. There are still several limitations on what it can run (for example the File and Log resources are not available in Powershell 7+ if you are using PSDesiredStateConfiguration 2+) and probably an uncountable number of bugs (if you find some, report them, mush appreciated!)
 
 ### Examples
 
@@ -30,12 +30,12 @@ Invoke-DscConfiguration -MofFilePath .\localhost.mof -Verbose
 In this example we apply a compiled DSC configuration specifying a thumbprint of a certificate to decrypt encrypted credentials in the configuration.
 
 ```Powershell
-Invoke-DscConfiguration -MofFilePath .\localhost.mof -Thumbprint FEE142AA253BC347796A6C436F7E6E9349ACED5F -Verbose
+Invoke-DscConfiguration -MofFilePath .\localhost.mof -Thumbprint FEE142AA253BC34... -Verbose
 ```
 
 In this example we run a compiled DSC configuration as a baseline only to check whether the system configuration has drifted (no mitigation is applied).
 
-So far this option is not extremely useful as it reports true o false for each resource only as verbose output. It will be improved in the future.
+This option reports true o false for each resource as verbose output, as well as a return value (true if all resources are ok, false if at least one has drifted). It might be further improved in the future.
 
 ```Powershell
 Invoke-DscConfiguration -MofFilePath .\baseline.mof -Mode Validate -Verbose

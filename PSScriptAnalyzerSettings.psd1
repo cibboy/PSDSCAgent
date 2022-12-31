@@ -3,10 +3,8 @@
 
 	Severity = @('Error', 'Warning', 'Information')
 	ExcludeRules = @(
-		'PSAvoidUsingConvertToSecureStringWithPlainText',
 		'PSAvoidUsingEmptyCatchBlock',
-		'PSUseToExportFieldsInManifest',
-		'PSUseBOMForUnicodeEncodedFile'
+		'PSUseToExportFieldsInManifest'
 	)
 	Rules = @{
 		PSAvoidAssignmentToAutomaticVariable = @{
