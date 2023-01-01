@@ -346,7 +346,7 @@ function ConvertFrom-MofFile {
 			# Load actual resrouce definition.
 			$key = "$($r.Resource.Name)_$($module['ModuleName'])_$($module['ModuleVersion'])"
 			$actual = $script:ParsingStatus.ActualResources[$key]
-			if ($null -eq $actual) { $actual = Get-DscResource $r.Resource.Name -Module $module -ErrorAction SilentlyContinue }
+			if ($null -eq $actual) { $actual = Get-DscResource $r.Resource.Name -Module $module -ErrorAction SilentlyContinue -Verbose:$false }
 
 			# If actual resource found, look for used properties, looking for bool or int that were converted
 			# but are actually strings.
