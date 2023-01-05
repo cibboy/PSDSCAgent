@@ -53,12 +53,10 @@ function Invoke-DscConfiguration {
 
 			if ($lcm.RefreshMode -ine 'Disabled') {
 				Write-Warning 'It is strongly suggested that the LCM is disabled when using the PSDSCAgent.'
-				#TODO: make sure that Get-DscResource works when the LCM is disabled
 			}
 
 			if ($lcm.RebootNodeIfNeeded) {
 				Write-Warning 'It is strongly suggested that the LCM not control the reboot, so the PSDSCAgent can handle it.'
-				#TODO: make sure that this setting actually has impact if the LCM is in disabled
 			}
 		}
 	}
@@ -115,9 +113,12 @@ function Invoke-DscConfiguration {
 						$params['Verbose'] = $true
 					}
 
+					# Prepare module information.
 					$module = @{ ModuleName = $resource.Resource.ModuleName; ModuleVersion = $resource.Resource.ModuleVersion }
+					# If module is default PSDesiredStateConfiguration, make it a string as using a hashmap
+					# can create issues with versions and PsDscRunAsCredential.
 					if ($module['ModuleName'] -eq 'PSDesiredStateConfiguration' -and $module['ModuleVersion'] -eq '1.0') {
-						$module['ModuleVersion'] = '1.1'
+						$module = 'PSDesiredStateConfiguration'
 					}
 
 					# Test the status of the resource.
