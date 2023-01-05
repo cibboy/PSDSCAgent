@@ -117,7 +117,7 @@ function Invoke-DscConfiguration {
 					$module = @{ ModuleName = $resource.Resource.ModuleName; ModuleVersion = $resource.Resource.ModuleVersion }
 					# If module is default PSDesiredStateConfiguration, make it a string as using a hashmap
 					# can create issues with versions and PsDscRunAsCredential.
-					if ($module['ModuleName'] -eq 'PSDesiredStateConfiguration' -and $module['ModuleVersion'] -eq '1.0') {
+					if ($module['ModuleName'] -eq 'PSDesiredStateConfiguration') {
 						$module = 'PSDesiredStateConfiguration'
 					}
 
