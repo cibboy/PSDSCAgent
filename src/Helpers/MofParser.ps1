@@ -339,9 +339,6 @@ function ConvertFrom-MofFile {
 			$r = $script:ParsingStatus.Result.Resources[$rk]
 
 			$module = @{ ModuleName = $r.Resource.ModuleName; ModuleVersion = $r.Resource.ModuleVersion }
-			if ($module['ModuleName'] -eq 'PSDesiredStateConfiguration' -and $module['ModuleVersion'] -eq '1.0') {
-				$module['ModuleVersion'] = '1.1'
-			}
 
 			# Load actual resrouce definition.
 			$key = "$($r.Resource.Name)_$($module['ModuleName'])_$($module['ModuleVersion'])"

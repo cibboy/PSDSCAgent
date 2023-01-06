@@ -67,6 +67,9 @@ function Invoke-DscConfiguration {
 		# Compute the sequence of resources to invoke, considering dependencies.
 		$plan = Get-DscResourceSequentialSorting -Configuration $configuration
 
+		# Prepare a job id.
+		$jobId = (New-Guid).Guid.ToUpperInvariant()
+
 		# Prepare map of execution results.
 		$execution = @{}
 		foreach ($r in $plan) {
@@ -92,7 +95,7 @@ function Invoke-DscConfiguration {
 
 			# Temporarily avoid errors for resources that need custom implementation (not a full solution
 			# since dependencies will not be executed).
-			if ($resource.Resource.Name -in ('File', 'Log', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $ModernDSC) {
+			if ($resource.Resource.Name -in ('File', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $ModernDSC) {
 				Write-Warning "Resource $r is of type $($resource.Resource.Name) and cannot be run Powershell Core."
 				$canContinue = $false
 			}
@@ -119,6 +122,17 @@ function Invoke-DscConfiguration {
 					# can create issues with versions and PsDscRunAsCredential.
 					if ($module['ModuleName'] -eq 'PSDesiredStateConfiguration') {
 						$module = 'PSDesiredStateConfiguration'
+					}
+
+					# Deviate Log resource to internal implementation if on modern DSC.
+					if ($resource.Resource.Name -eq 'Log' -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $ModernDSC) {
+						$module = 'PSDSCAgent'
+						$resource.Resource.Name = 'PSDSCLog'
+
+						# Add "fake" parameters needed to emulate the original resource.
+						$params['ResourceId'] = $r
+						$params['ConfigurationName'] = $configuration.Metadata.Name
+						$params['JobId'] = "{$jobId}"
 					}
 
 					# Test the status of the resource.
