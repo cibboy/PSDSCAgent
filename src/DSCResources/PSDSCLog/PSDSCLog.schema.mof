@@ -1,0 +1,8 @@
+﻿[ClassVersion("1.0.0"), FriendlyName("PSDSCLog")]
+class PSDSCLog : OMI_BaseResource
+{
+  [Key, Description("The id of the resource. Format: [Log]<resource name>")] string ResourceId;
+  [Required, Description("The name of the configuration running")] string ConfigurationName;
+  [Required, Description("The guid representing the running job. Format: {<guid>}")] string JobId;
+  [Required, Description("The message to add to the Microsoft-Windows-Desired State Configuration/Analytic event log")] string Message;
+};

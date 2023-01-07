@@ -1,6 +1,6 @@
-﻿# Get public and private function definition files.
+﻿# Get function definition files.
 $Helpers = @(Get-ChildItem -Path $PSScriptRoot\Helpers -Recurse -Filter "*.ps1") | Sort-Object Name
-#$Private = @(Get-ChildItem -Path $PSScriptRoot\Private -Recurse -Filter "*.ps1") | Sort-Object Name
+$Private = @(Get-ChildItem -Path $PSScriptRoot\Private -Recurse -Filter "*.ps1") | Sort-Object Name
 $Public = @(Get-ChildItem -Path $PSScriptRoot\Public -Recurse -Filter "*.ps1") | Sort-Object Name
 
 # Dots source the helper files.
@@ -15,7 +15,7 @@ foreach ($import in $Helpers) {
 }
 
 # Dots source the private files.
-<#foreach ($import in $Private) {
+foreach ($import in $Private) {
 	try {
 		. $import.FullName
 		Write-Verbose -Message "Imported private function $($import.FullName)"
@@ -23,7 +23,7 @@ foreach ($import in $Helpers) {
 	catch {
 		Write-Error -Message "Failed to import private function $($import.FullName): $_"
 	}
-}#>
+}
 
 # Dots source the public files.
 foreach ($import in $Public) {
@@ -35,6 +35,9 @@ foreach ($import in $Public) {
 		Write-Error -Message "Failed to import public function $($import.FullName): $_"
 	}
 }
+
+# Initialize environment.
+Initialize-PSDSCAgentEnvironment
 
 # Export functions of public files.
 Export-ModuleMember -Function $Public.BaseName

@@ -3,7 +3,7 @@ TODO: help
 #>
 function ConvertFrom-MofFile {
 	[CmdletBinding()]
-	Param(
+	Param (
 		[Parameter(Mandatory = $true)]
 		[ValidateScript({ Test-Path $_ })]
 		[string]$FilePath,
@@ -338,11 +338,18 @@ function ConvertFrom-MofFile {
 		foreach ($rk in $script:ParsingStatus.Result.Resources.Keys) {
 			$r = $script:ParsingStatus.Result.Resources[$rk]
 
-			$module = @{ ModuleName = $r.Resource.ModuleName; ModuleVersion = $r.Resource.ModuleVersion }
+			# Prepare module information.
+			$module = @{ ModuleName = $resource.Resource.ModuleName; ModuleVersion = $resource.Resource.ModuleVersion }
+			# If module is default PSDesiredStateConfiguration, make it a string as using a hashmap
+			# can create issues with versions and PsDscRunAsCredential.
+			if ($module['ModuleName'] -eq 'PSDesiredStateConfiguration') {
+				$module = 'PSDesiredStateConfiguration'
+			}
 
 			# Load actual resrouce definition.
 			$key = "$($r.Resource.Name)_$($module['ModuleName'])_$($module['ModuleVersion'])"
 			$actual = $script:ParsingStatus.ActualResources[$key]
+			#TODO: this might fail for rewritten resources.
 			if ($null -eq $actual) { $actual = Get-DscResource $r.Resource.Name -Module $module -ErrorAction SilentlyContinue -Verbose:$false }
 
 			# If actual resource found, look for used properties, looking for bool or int that were converted

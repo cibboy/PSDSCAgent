@@ -5,7 +5,7 @@ function Invoke-DscConfiguration {
 	[CmdletBinding()]
 	[OutputType([bool])]
 	[OutputType([void])]
-	Param(
+	Param (
 		[Parameter(Mandatory = $true)]
 		[ValidateScript({ Test-Path $_ })]
 		[string]$MofFilePath,
@@ -27,20 +27,9 @@ function Invoke-DscConfiguration {
 	)
 
 	Begin {
-		$PowershellCore = $true
-		if ($PSVersionTable.PSVersion.Major -le 5) { $PowershellCore = $false }
-
-		$ModernDSC = $false
-		foreach ($m in (Get-Module PSDesiredStateConfiguration -ListAvailable -Verbose:$false)) {
-			if ($m.Version.Major -gt 1) {
-				$ModernDSC = $true
-				break
-			}
-		}
-
 		# Make sure Invoke-DscResource is enabled in Powershell Core, since
 		# it's an experimental feature and it's disabled by default.
-		if ($PowershellCore) {
+		if ($script:PSDSCAgentEnvironment.PowershellCore) {
 			if (-not (Get-ExperimentalFeature PSDesiredStateConfiguration.InvokeDscResource -Verbose:$false | Select-Object -ExpandProperty Enabled)) {
 				throw 'Experimental feature PSDesiredStateConfiguration.InvokeDscResource must be enabled to use this command. Use "Enable-ExperimentalFeature PSDesiredStateConfiguration.InvokeDscResource" and restart the Powershell session.'
 			}
@@ -48,7 +37,7 @@ function Invoke-DscConfiguration {
 
 		# If running in a session that uses DSC 1.1, warn if the LCM is configured
 		# in a way that might interfere.
-		if (!$ModernDSC) {
+		if (!$script:PSDSCAgentEnvironment.ModernDSC) {
 			$lcm = Get-DscLocalConfigurationManager -Verbose:$false
 
 			if ($lcm.RefreshMode -ine 'Disabled') {
@@ -81,7 +70,7 @@ function Invoke-DscConfiguration {
 
 		$status = 'Running'
 		foreach ($r in $plan) {
-			if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start      ] [$r]" }
+			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start      ] [$r]" }
 			$resource = $configuration.Resources[$r]
 
 			# Make sure dependencies completed ok.
@@ -95,7 +84,7 @@ function Invoke-DscConfiguration {
 
 			# Temporarily avoid errors for resources that need custom implementation (not a full solution
 			# since dependencies will not be executed).
-			if ($resource.Resource.Name -in ('File', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $ModernDSC) {
+			if ($resource.Resource.Name -in ('File', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.ModernDSC) {
 				Write-Warning "Resource $r is of type $($resource.Resource.Name) and cannot be run Powershell Core."
 				$canContinue = $false
 			}
@@ -111,11 +100,6 @@ function Invoke-DscConfiguration {
 						}
 					}
 
-					# Modern DSC supports verbose.
-					if ($ModernDSC -and (($PSCmdlet.MyInvocation.BoundParameters['Verbose'].IsPresent) -or $VerbosePreference -eq 'Continue')) {
-						$params['Verbose'] = $true
-					}
-
 					# Prepare module information.
 					$module = @{ ModuleName = $resource.Resource.ModuleName; ModuleVersion = $resource.Resource.ModuleVersion }
 					# If module is default PSDesiredStateConfiguration, make it a string as using a hashmap
@@ -125,7 +109,7 @@ function Invoke-DscConfiguration {
 					}
 
 					# Deviate Log resource to internal implementation if on modern DSC.
-					if ($resource.Resource.Name -eq 'Log' -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $ModernDSC) {
+					if ($resource.Resource.Name -eq 'Log' -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.ModernDSC) {
 						$module = 'PSDSCAgent'
 						$resource.Resource.Name = 'PSDSCLog'
 
@@ -135,26 +119,83 @@ function Invoke-DscConfiguration {
 						$params['JobId'] = "{$jobId}"
 					}
 
+					# Modern DSC supports verbose.
+					if (
+						$script:PSDSCAgentEnvironment.ModernDSC -and
+						(($PSCmdlet.MyInvocation.BoundParameters['Verbose'].IsPresent) -or $VerbosePreference -eq 'Continue')
+					) {
+						$params['Verbose'] = $true
+					}
+
+					# Prepare Invoke-DscResource parameters.
+					$invokeParams = @{
+						Name = $resource.Resource.Name
+						ModuleName = $module
+						Property = $params
+						ErrorAction = 'Stop'
+						OutVariable = 'invokeOutput'
+					}
+
 					# Test the status of the resource.
-					if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Test ] [$r]" }
-					$test = Invoke-DscResource -Name $resource.Resource.Name -ModuleName $module -Method Test -Property $params -ErrorAction Stop
+					if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Test ] [$r]" }
+					Invoke-DscResource @invokeParams -Method Test 4>&1 | Out-Null #TODO: breaks verbose output in PS5
+					$test = $null
+					#TODO: improve output rendering and code reuse.
+					foreach ($o in $invokeOutput) {
+						# Recover actual Invoke-DscResource output.
+						if ($o.GetType().Name -eq 'InvokeDscResourceTestResult') {
+							$test = $o
+							continue
+						}
+
+						# Distinguish between text output and verbose output.
+						$m = $o
+						if ($o.GetType().Name -eq 'VerboseRecord') {
+							$m = $o.Message
+						}
+
+						# Verbose output with proper formatting.
+						if ($script:PSDSCAgentEnvironment.PowershellCore) {
+							Write-Verbose "[$($configuration.Metadata.Name)]                [$r] $m"
+						}
+					}
 
 					if (!$test.InDesiredState) {
 						$execution[$r].Status = 'Failed'
 
-						if ($PowershellCore) {
+						if ($script:PSDSCAgentEnvironment.PowershellCore) {
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is not in desired state."
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
 						}
 
 						if ($Mode -eq 'Apply') {
 							# If the resource has drifted, invoke it with set.
-							if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Set  ] [$r]" }
-							$set = Invoke-DscResource -Name $resource.Resource.Name -ModuleName $module -Method Set -Property $params -ErrorAction Stop
+							if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Set  ] [$r]" }
+							Invoke-DscResource @invokeParams -Method Set 4>&1 | Out-Null #TODO: breaks verbose output in PS5
+							$set = $null
+							#TODO: improve output rendering and code reuse.
+							foreach ($o in $invokeOutput) {
+								# Recover actual Invoke-DscResource output.
+								if ($o.GetType().Name -eq 'InvokeDscResourceSetResult') {
+									$set = $o
+									continue
+								}
+
+								# Distinguish between text output and verbose output.
+								$m = $o
+								if ($o.GetType().Name -eq 'VerboseRecord') {
+									$m = $o.Message
+								}
+
+								# Verbose output with proper formatting.
+								if ($script:PSDSCAgentEnvironment.PowershellCore) {
+									Write-Verbose "[$($configuration.Metadata.Name)]                [$r] $m"
+								}
+							}
 
 							$execution[$r].Status = 'Ok'
 
-							if ($PowershellCore) {
+							if ($script:PSDSCAgentEnvironment.PowershellCore) {
 								Write-Verbose "[$($configuration.Metadata.Name)] [ End   Set  ] [$r] Resource has been set to desired state."
 								Write-Verbose "[$($configuration.Metadata.Name)] [ End   Set  ] [$r]"
 							}
@@ -171,7 +212,7 @@ function Invoke-DscConfiguration {
 					else {
 						$execution[$r].Status = 'Ok'
 
-						if ($PowershellCore) {
+						if ($script:PSDSCAgentEnvironment.PowershellCore) {
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
 							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is in desired state."
 						}
@@ -189,7 +230,7 @@ function Invoke-DscConfiguration {
 				$status = 'Failed'
 			}
 
-			if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ End        ] [$r]" }
+			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ End        ] [$r]" }
 		}
 
 		if ($status -eq 'Failed') {
