@@ -37,7 +37,7 @@ function Invoke-DscConfiguration {
 
 		# If running in a session that uses DSC 1.1, warn if the LCM is configured
 		# in a way that might interfere.
-		if (!$script:PSDSCAgentEnvironment.ModernDSC) {
+		if (!$script:PSDSCAgentEnvironment.PowershellCore) {
 			$lcm = Get-DscLocalConfigurationManager -Verbose:$false
 
 			if ($lcm.RefreshMode -ine 'Disabled') {
@@ -68,9 +68,16 @@ function Invoke-DscConfiguration {
 			}
 		}
 
+		$totalStart = Get-Date
+		if ($script:PSDSCAgentEnvironment.PowershellCore) {
+			if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet') }
+			else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest') }
+		}
+
 		$status = 'Running'
 		foreach ($r in $plan) {
-			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start      ] [$r]" }
+			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartResource' -ResourceId $r) }
+
 			$resource = $configuration.Resources[$r]
 
 			# Make sure dependencies completed ok.
@@ -84,7 +91,7 @@ function Invoke-DscConfiguration {
 
 			# Temporarily avoid errors for resources that need custom implementation (not a full solution
 			# since dependencies will not be executed).
-			if ($resource.Resource.Name -in ('File', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.ModernDSC) {
+			if ($resource.Resource.Name -in ('File', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.PowershellCore) {
 				Write-Warning "Resource $r is of type $($resource.Resource.Name) and cannot be run Powershell Core."
 				$canContinue = $false
 			}
@@ -109,19 +116,19 @@ function Invoke-DscConfiguration {
 					}
 
 					# Deviate Log resource to internal implementation if on modern DSC.
-					if ($resource.Resource.Name -eq 'Log' -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.ModernDSC) {
+					#TODO: find a way to use it also for windows powershell, as test in standard Log resource always returns true for some reason (using current PSDSCLog throws exception 'The PowerShell DSC resource PSDSCLog from module <PSDSCAgent,0.2.0> does not exist at the PowerShell module path nor is it registered as a WMI DSC resource').
+					if ($resource.Resource.Name -eq 'Log' -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.PowershellCore) {
 						$module = 'PSDSCAgent'
-						$resource.Resource.Name = 'PSDSCLog'
+						$resource.Resource.Name = 'PSDSCLog' #TODO: better to set a local variable that is later used by invoke-dscresource
 
 						# Add "fake" parameters needed to emulate the original resource.
-						$params['ResourceId'] = $r
-						$params['ConfigurationName'] = $configuration.Metadata.Name
+						$params['Resource'] = $r
 						$params['JobId'] = "{$jobId}"
 					}
 
 					# Modern DSC supports verbose.
 					if (
-						$script:PSDSCAgentEnvironment.ModernDSC -and
+						$script:PSDSCAgentEnvironment.PowershellCore -and
 						(($PSCmdlet.MyInvocation.BoundParameters['Verbose'].IsPresent) -or $VerbosePreference -eq 'Continue')
 					) {
 						$params['Verbose'] = $true
@@ -133,71 +140,88 @@ function Invoke-DscConfiguration {
 						ModuleName = $module
 						Property = $params
 						ErrorAction = 'Stop'
-						OutVariable = 'invokeOutput'
 					}
+
+					$resourceStart = Get-Date
 
 					# Test the status of the resource.
-					if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Test ] [$r]" }
-					Invoke-DscResource @invokeParams -Method Test 4>&1 | Out-Null #TODO: breaks verbose output in PS5
+					if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest' -ResourceId $r) }
 					$test = $null
-					#TODO: improve output rendering and code reuse.
-					foreach ($o in $invokeOutput) {
-						# Recover actual Invoke-DscResource output.
-						if ($o.GetType().Name -eq 'InvokeDscResourceTestResult') {
-							$test = $o
-							continue
-						}
+					if ($script:PSDSCAgentEnvironment.PowershellCore) {
+						Invoke-DscResource @invokeParams -OutVariable 'invokeOutput' -Method Test 4>&1 | Out-Null
+						#TODO: improve output rendering and code reuse.
+						foreach ($o in $invokeOutput) {
+							# Recover actual Invoke-DscResource output.
+							if ($o.GetType().Name -eq 'InvokeDscResourceTestResult') {
+								$test = $o
+								continue
+							}
 
-						# Distinguish between text output and verbose output.
-						$m = $o
-						if ($o.GetType().Name -eq 'VerboseRecord') {
-							$m = $o.Message
-						}
+							# Distinguish between text output and verbose output.
+							$m = $o
+							if ($o.GetType().Name -eq 'VerboseRecord') {
+								$m = $o.Message
+							}
 
-						# Verbose output with proper formatting.
-						if ($script:PSDSCAgentEnvironment.PowershellCore) {
-							Write-Verbose "[$($configuration.Metadata.Name)]                [$r] $m"
+							# Verbose output with proper formatting.
+							if ($script:PSDSCAgentEnvironment.PowershellCore) {
+								Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'Message' -ResourceId $r -Message $m)
+							}
 						}
 					}
+					else {
+						$test = Invoke-DscResource @invokeParams -Method Test
+					}
+
+					$resourceEnd = Get-Date
+					$timeDiff = $resourceEnd - $resourceStart
 
 					if (!$test.InDesiredState) {
 						$execution[$r].Status = 'Failed'
 
 						if ($script:PSDSCAgentEnvironment.PowershellCore) {
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is not in desired state."
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
+							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
 						}
 
 						if ($Mode -eq 'Apply') {
+							$resourceStart = Get-Date
+
 							# If the resource has drifted, invoke it with set.
-							if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Set  ] [$r]" }
-							Invoke-DscResource @invokeParams -Method Set 4>&1 | Out-Null #TODO: breaks verbose output in PS5
+							if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet' -ResourceId $r) }
 							$set = $null
-							#TODO: improve output rendering and code reuse.
-							foreach ($o in $invokeOutput) {
-								# Recover actual Invoke-DscResource output.
-								if ($o.GetType().Name -eq 'InvokeDscResourceSetResult') {
-									$set = $o
-									continue
-								}
+							if ($script:PSDSCAgentEnvironment.PowershellCore) {
+								Invoke-DscResource @invokeParams -OutVariable 'invokeOutput' -Method Set 4>&1 | Out-Null
+								#TODO: improve output rendering and code reuse.
+								foreach ($o in $invokeOutput) {
+									# Recover actual Invoke-DscResource output.
+									if ($o.GetType().Name -eq 'InvokeDscResourceSetResult') {
+										$set = $o
+										continue
+									}
 
-								# Distinguish between text output and verbose output.
-								$m = $o
-								if ($o.GetType().Name -eq 'VerboseRecord') {
-									$m = $o.Message
-								}
+									# Distinguish between text output and verbose output.
+									$m = $o
+									if ($o.GetType().Name -eq 'VerboseRecord') {
+										$m = $o.Message
+									}
 
-								# Verbose output with proper formatting.
-								if ($script:PSDSCAgentEnvironment.PowershellCore) {
-									Write-Verbose "[$($configuration.Metadata.Name)]                [$r] $m"
+									# Verbose output with proper formatting.
+									if ($script:PSDSCAgentEnvironment.PowershellCore) {
+										Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'Message' -ResourceId $r -Message $m)
+									}
 								}
+							}
+							else {
+								$set = Invoke-DscResource @invokeParams -Method Set
 							}
 
 							$execution[$r].Status = 'Ok'
 
+							$resourceEnd = Get-Date
+							$timeDiff = $resourceEnd - $resourceStart
+
 							if ($script:PSDSCAgentEnvironment.PowershellCore) {
-								Write-Verbose "[$($configuration.Metadata.Name)] [ End   Set  ] [$r] Resource has been set to desired state."
-								Write-Verbose "[$($configuration.Metadata.Name)] [ End   Set  ] [$r]"
+								Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -ResourceId $r -TimeSpan $timeDiff)
 							}
 
 							if ($set.RebootRequired) {
@@ -213,8 +237,8 @@ function Invoke-DscConfiguration {
 						$execution[$r].Status = 'Ok'
 
 						if ($script:PSDSCAgentEnvironment.PowershellCore) {
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is in desired state."
+							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
+							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'SkipSet' -ResourceId $r)
 						}
 					}
 				}
@@ -230,7 +254,14 @@ function Invoke-DscConfiguration {
 				$status = 'Failed'
 			}
 
-			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ End        ] [$r]" }
+			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndResource' -ResourceId $r) }
+		}
+
+		$totalEnd = Get-Date
+		$timeDiff = $totalEnd - $totalStart
+		if ($script:PSDSCAgentEnvironment.PowershellCore) {
+			if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -TimeSpan $timeDiff) }
+			else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -TimeSpan $timeDiff) }
 		}
 
 		if ($status -eq 'Failed') {
@@ -248,6 +279,12 @@ function Invoke-DscConfiguration {
 				}
 			}
 
+			#TODO: validation must behave like LCM, thus return a pscustomobject like this:
+			#InDesiredState             : bool
+			#ResourcesInDesiredState    : @(<list of resource ids (format: [<type>]<name>))
+			#ResourcesNotInDesiredState : @(<list of resource ids (format: [<type>]<name>))
+			#ReturnValue                : int (0 if no errors)
+			#PSComputerName             : string (localhost since there is no remote capability yet)
 			return $true
 		}
 	}

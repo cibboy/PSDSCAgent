@@ -13,11 +13,7 @@ function Get-TargetResource {
 	Param (
 		[Parameter(Mandatory = $true)]
 		[ValidateNotNullOrEmpty()]
-		[string]$ResourceId,
-
-		[Parameter(Mandatory = $true)]
-		[ValidateNotNullOrEmpty()]
-		[string]$ConfigurationName,
+		[string]$Resource,
 
 		[Parameter(Mandatory = $true)]
 		[ValidateNotNullOrEmpty()]
@@ -48,11 +44,7 @@ function Set-TargetResource {
 	Param (
 		[Parameter(Mandatory = $true)]
 		[ValidateNotNullOrEmpty()]
-		[string]$ResourceId,
-
-		[Parameter(Mandatory = $true)]
-		[ValidateNotNullOrEmpty()]
-		[string]$ConfigurationName,
+		[string]$Resource,
 
 		[Parameter(Mandatory = $true)]
 		[ValidateNotNullOrEmpty()]
@@ -63,13 +55,16 @@ function Set-TargetResource {
 		[string]$Message
 	)
 
-	$JobId = $JobId # Format: {<guid>}
+	# Dot-source private method for output formatting.
+	$root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+	$ps1 = Join-Path $root 'Private/Get-LCMLikeVerboseMessage.ps1'
+	. $ps1 -Verbose:$false
+
 	$WMIMessageChannel = 1
-	$ResourceId = $ResourceId # Format: [Log]<resource name>
-	$MessageBody = "[$ConfigurationName]:                            $ResourceId $Message"
+	$MessageBody = Get-LCMLikeVerboseMessage -Phase 'Message' -ResourceId $Resource -Message $Message
 
 	Write-Verbose "Adding message $Message to Microsoft-Windows-Dsc/Analytic"
-	New-WinEvent -ProviderName 'Microsoft-Windows-Dsc' -Id 4098 -Payload @($JobId, $WMIMessageChannel, $ResourceId, $MessageBody)
+	New-WinEvent -ProviderName 'Microsoft-Windows-Dsc' -Id 4098 -Payload @($JobId, $WMIMessageChannel, $Resource, $MessageBody)
 }
 
 <#
@@ -88,11 +83,7 @@ function Test-TargetResource {
 	Param (
 		[Parameter(Mandatory = $true)]
 		[ValidateNotNullOrEmpty()]
-		[string]$ResourceId,
-
-		[Parameter(Mandatory = $true)]
-		[ValidateNotNullOrEmpty()]
-		[string]$ConfigurationName,
+		[string]$Resource,
 
 		[Parameter(Mandatory = $true)]
 		[ValidateNotNullOrEmpty()]
