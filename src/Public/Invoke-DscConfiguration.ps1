@@ -69,16 +69,16 @@ function Invoke-DscConfiguration {
 		}
 
 		$totalStart = Get-Date
-		if ($script:PSDSCAgentEnvironment.PowershellCore) {
-			if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet') }
-			else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest') }
-		}
+		if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet') }
+		else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest') }
 
 		$status = 'Running'
 		foreach ($r in $plan) {
-			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartResource' -ResourceId $r) }
+			Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartResource' -ResourceId $r)
 
 			$resource = $configuration.Resources[$r]
+
+			#TODO: refactor the function. Split test and set into separate private functions to simplify code management.
 
 			# Make sure dependencies completed ok.
 			$canContinue = $true
@@ -115,11 +115,13 @@ function Invoke-DscConfiguration {
 						$module = 'PSDesiredStateConfiguration'
 					}
 
-					# Deviate Log resource to internal implementation if on modern DSC.
-					#TODO: find a way to use it also for windows powershell, as test in standard Log resource always returns true for some reason (using current PSDSCLog throws exception 'The PowerShell DSC resource PSDSCLog from module <PSDSCAgent,0.2.0> does not exist at the PowerShell module path nor is it registered as a WMI DSC resource').
-					if ($resource.Resource.Name -eq 'Log' -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.PowershellCore) {
+					$resourceName = $resource.Resource.Name
+
+					# Deviate Log resource to internal implementation. This applies also to standard PSDesiredStateConfiguration 1.1
+					# in Windows Powershell as it looks like the test method of the original binary resource always return $true.
+					if ($resourceName -eq 'Log' -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration') {
 						$module = 'PSDSCAgent'
-						$resource.Resource.Name = 'PSDSCLog' #TODO: better to set a local variable that is later used by invoke-dscresource
+						$resourceName = 'PSDSCLog'
 
 						# Add "fake" parameters needed to emulate the original resource.
 						$params['Resource'] = $r
@@ -131,88 +133,132 @@ function Invoke-DscConfiguration {
 						$script:PSDSCAgentEnvironment.PowershellCore -and
 						(($PSCmdlet.MyInvocation.BoundParameters['Verbose'].IsPresent) -or $VerbosePreference -eq 'Continue')
 					) {
-						$params['Verbose'] = $true
+						$params['Verbose'] = $true #TODO: ps7 requires verbose on the resource for verbose output; ps5 doesn't support this
 					}
 
 					# Prepare Invoke-DscResource parameters.
 					$invokeParams = @{
-						Name = $resource.Resource.Name
+						Name = $resourceName
 						ModuleName = $module
 						Property = $params
 						ErrorAction = 'Stop'
+					}
+					#TODO: ps5 requires verbose here for proper verbose output, but verbosepreference must be set to silentlycontinue; ps7 becomes superverbose
+					#TODO: also, if verbosepreference is silentlycontinue (no -verbose in calling this function), ps5 still outputs verbose, ps7 doesn't
+					#TODO: finally, this way ps5 skips verbose output of module loading (while ps7 outputs it if using it here -.-)
+					$ps5VerbosePreference = $null
+					if (
+						!$script:PSDSCAgentEnvironment.PowershellCore -and
+						(($PSCmdlet.MyInvocation.BoundParameters['Verbose'].IsPresent) -or $VerbosePreference -eq 'Continue')
+					) {
+						$invokeParams['Verbose'] = $true
+						$ps5VerbosePreference = $VerbosePreference
+						$VerbosePreference = 'SilentlyContinue'
 					}
 
 					$resourceStart = Get-Date
 
 					# Test the status of the resource.
-					if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest' -ResourceId $r) }
-					$test = $null
-					if ($script:PSDSCAgentEnvironment.PowershellCore) {
-						Invoke-DscResource @invokeParams -OutVariable 'invokeOutput' -Method Test 4>&1 | Out-Null
-						#TODO: improve output rendering and code reuse.
-						foreach ($o in $invokeOutput) {
-							# Recover actual Invoke-DscResource output.
-							if ($o.GetType().Name -eq 'InvokeDscResourceTestResult') {
-								$test = $o
+					Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest' -ResourceId $r)
+					$test = $true
+					Invoke-DscResource @invokeParams -OutVariable 'invokeOutput' -Method Test 4>&1 | Out-Null
+					if ($null -ne $ps5VerbosePreference) {
+						$VerbosePreference = $ps5VerbosePreference
+						$ps5VerbosePreference = $null
+					}
+					#TODO: improve output rendering and code reuse.
+					foreach ($o in $invokeOutput) {
+						# Recover actual Invoke-DscResource output.
+						if ($o.GetType().Name -eq 'InvokeDscResourceTestResult') {
+							# Powershell Core
+							$test = $o.InDesiredState
+							continue
+						}
+						elseif ($o.GetType().Name -eq 'Boolean') {
+							# Windows Powershell
+							$test = $o
+							continue
+						}
+
+						# Distinguish between text output and verbose output.
+						$m = $o
+						if ($o.GetType().Name -eq 'VerboseRecord') {
+							$m = $o.Message
+						}
+
+						# Verbose output with proper formatting.
+						if (!$script:PSDSCAgentEnvironment.PowershellCore) {
+							# Intercept resource verbose output (starts with [<computer name>], but it's without LCM:).
+							if ($m -like "[[]$($env:COMPUTERNAME)[]]:  *") {
+								$m = $m.Substring($m.IndexOf('DirectResourceAccess]') + 22)
+							}
+							else {
 								continue
 							}
-
-							# Distinguish between text output and verbose output.
-							$m = $o
-							if ($o.GetType().Name -eq 'VerboseRecord') {
-								$m = $o.Message
-							}
-
-							# Verbose output with proper formatting.
-							if ($script:PSDSCAgentEnvironment.PowershellCore) {
-								Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'Message' -ResourceId $r -Message $m)
-							}
 						}
-					}
-					else {
-						$test = Invoke-DscResource @invokeParams -Method Test
+						Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'Message' -ResourceId $r -Message $m)
 					}
 
 					$resourceEnd = Get-Date
 					$timeDiff = $resourceEnd - $resourceStart
 
-					if (!$test.InDesiredState) {
+					if (!$test) {
 						$execution[$r].Status = 'Failed'
 
-						if ($script:PSDSCAgentEnvironment.PowershellCore) {
-							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
-						}
+						Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
 
 						if ($Mode -eq 'Apply') {
+							$ps5VerbosePreference = $null
+							if (
+								!$script:PSDSCAgentEnvironment.PowershellCore -and
+								(($PSCmdlet.MyInvocation.BoundParameters['Verbose'].IsPresent) -or $VerbosePreference -eq 'Continue')
+							) {
+								$invokeParams['Verbose'] = $true
+								$ps5VerbosePreference = $VerbosePreference
+								$VerbosePreference = 'SilentlyContinue'
+							}
+
 							$resourceStart = Get-Date
 
 							# If the resource has drifted, invoke it with set.
-							if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet' -ResourceId $r) }
-							$set = $null
-							if ($script:PSDSCAgentEnvironment.PowershellCore) {
-								Invoke-DscResource @invokeParams -OutVariable 'invokeOutput' -Method Set 4>&1 | Out-Null
-								#TODO: improve output rendering and code reuse.
-								foreach ($o in $invokeOutput) {
-									# Recover actual Invoke-DscResource output.
-									if ($o.GetType().Name -eq 'InvokeDscResourceSetResult') {
-										$set = $o
+							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet' -ResourceId $r)
+							$reboot = $false
+							Invoke-DscResource @invokeParams -OutVariable 'invokeOutput' -Method Set 4>&1 | Out-Null
+							if ($null -ne $ps5VerbosePreference) {
+								$VerbosePreference = $ps5VerbosePreference
+								$ps5VerbosePreference = $null
+							}
+							#TODO: improve output rendering and code reuse.
+							foreach ($o in $invokeOutput) {
+								# Recover actual Invoke-DscResource output.
+								if ($o.GetType().Name -eq 'InvokeDscResourceSetResult') {
+									# Powershell Core
+									$reboot = $o.RebootRequired
+									continue
+								}
+								elseif ($o.GetType().Name -eq 'Boolean') {
+									# Windows Powershell
+									$reboot = $o
+									continue
+								}
+
+								# Distinguish between text output and verbose output.
+								$m = $o
+								if ($o.GetType().Name -eq 'VerboseRecord') {
+									$m = $o.Message
+								}
+
+								# Verbose output with proper formatting.
+								if (!$script:PSDSCAgentEnvironment.PowershellCore) {
+									# Intercept resource verbose output (starts with [<computer name>], but it's without LCM:).
+									if ($m -like "[[]$($env:COMPUTERNAME)[]]:  *") {
+										$m = $m.Substring($m.IndexOf('DirectResourceAccess]') + 22)
+									}
+									else {
 										continue
 									}
-
-									# Distinguish between text output and verbose output.
-									$m = $o
-									if ($o.GetType().Name -eq 'VerboseRecord') {
-										$m = $o.Message
-									}
-
-									# Verbose output with proper formatting.
-									if ($script:PSDSCAgentEnvironment.PowershellCore) {
-										Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'Message' -ResourceId $r -Message $m)
-									}
 								}
-							}
-							else {
-								$set = Invoke-DscResource @invokeParams -Method Set
+								Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'Message' -ResourceId $r -Message $m)
 							}
 
 							$execution[$r].Status = 'Ok'
@@ -220,11 +266,9 @@ function Invoke-DscConfiguration {
 							$resourceEnd = Get-Date
 							$timeDiff = $resourceEnd - $resourceStart
 
-							if ($script:PSDSCAgentEnvironment.PowershellCore) {
-								Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -ResourceId $r -TimeSpan $timeDiff)
-							}
+							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -ResourceId $r -TimeSpan $timeDiff)
 
-							if ($set.RebootRequired) {
+							if ($reboot) {
 								# If reboot is required, reboot according to the configuration.
 								#TODO
 								$execution[$r].RebootRequired = $true
@@ -236,10 +280,8 @@ function Invoke-DscConfiguration {
 					else {
 						$execution[$r].Status = 'Ok'
 
-						if ($script:PSDSCAgentEnvironment.PowershellCore) {
-							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
-							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'SkipSet' -ResourceId $r)
-						}
+						Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
+						Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'SkipSet' -ResourceId $r)
 					}
 				}
 				catch {
@@ -254,15 +296,13 @@ function Invoke-DscConfiguration {
 				$status = 'Failed'
 			}
 
-			if ($script:PSDSCAgentEnvironment.PowershellCore) { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndResource' -ResourceId $r) }
+			Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndResource' -ResourceId $r)
 		}
 
 		$totalEnd = Get-Date
 		$timeDiff = $totalEnd - $totalStart
-		if ($script:PSDSCAgentEnvironment.PowershellCore) {
-			if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -TimeSpan $timeDiff) }
-			else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -TimeSpan $timeDiff) }
-		}
+		if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -TimeSpan $timeDiff) }
+		else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -TimeSpan $timeDiff) }
 
 		if ($status -eq 'Failed') {
 			Write-Error 'Invoke-DscConfiguration failed.'
