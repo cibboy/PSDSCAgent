@@ -43,4 +43,4 @@ Invoke-DscConfiguration -MofFilePath .\baseline.mof -Mode Validate -Verbose
 
 ### Note
 
-Using this module on Windows Powershell requires that custom resources be either in `C:\Program Files\WindowsPowerShell\Modules` or `C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules`. Other paths, like the user's personal modules folder in Documents might generate errors even if `SYSTEM` has full control.
+Using this module on Windows Powershell requires that custom resources, as well as this module, be either in `C:\Program Files\WindowsPowerShell\Modules` or `C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules`. Other paths, like the user's personal modules folder in Documents might generate errors even if `SYSTEM` has full control.
