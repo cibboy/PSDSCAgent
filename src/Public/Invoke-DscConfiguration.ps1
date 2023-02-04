@@ -5,7 +5,7 @@ function Invoke-DscConfiguration {
 	[CmdletBinding()]
 	[OutputType([bool])]
 	[OutputType([void])]
-	Param(
+	Param (
 		[Parameter(Mandatory = $true)]
 		[ValidateScript({ Test-Path $_ })]
 		[string]$MofFilePath,
@@ -27,20 +27,9 @@ function Invoke-DscConfiguration {
 	)
 
 	Begin {
-		$PowershellCore = $true
-		if ($PSVersionTable.PSVersion.Major -le 5) { $PowershellCore = $false }
-
-		$ModernDSC = $false
-		foreach ($m in (Get-Module PSDesiredStateConfiguration -ListAvailable -Verbose:$false)) {
-			if ($m.Version.Major -gt 1) {
-				$ModernDSC = $true
-				break
-			}
-		}
-
 		# Make sure Invoke-DscResource is enabled in Powershell Core, since
 		# it's an experimental feature and it's disabled by default.
-		if ($PowershellCore) {
+		if ($script:PSDSCAgentEnvironment.PowershellCore) {
 			if (-not (Get-ExperimentalFeature PSDesiredStateConfiguration.InvokeDscResource -Verbose:$false | Select-Object -ExpandProperty Enabled)) {
 				throw 'Experimental feature PSDesiredStateConfiguration.InvokeDscResource must be enabled to use this command. Use "Enable-ExperimentalFeature PSDesiredStateConfiguration.InvokeDscResource" and restart the Powershell session.'
 			}
@@ -48,7 +37,7 @@ function Invoke-DscConfiguration {
 
 		# If running in a session that uses DSC 1.1, warn if the LCM is configured
 		# in a way that might interfere.
-		if (!$ModernDSC) {
+		if (!$script:PSDSCAgentEnvironment.PowershellCore) {
 			$lcm = Get-DscLocalConfigurationManager -Verbose:$false
 
 			if ($lcm.RefreshMode -ine 'Disabled') {
@@ -67,6 +56,9 @@ function Invoke-DscConfiguration {
 		# Compute the sequence of resources to invoke, considering dependencies.
 		$plan = Get-DscResourceSequentialSorting -Configuration $configuration
 
+		# Prepare a job id.
+		$jobId = (New-Guid).Guid.ToUpperInvariant()
+
 		# Prepare map of execution results.
 		$execution = @{}
 		foreach ($r in $plan) {
@@ -76,9 +68,14 @@ function Invoke-DscConfiguration {
 			}
 		}
 
+		$totalStart = Get-Date
+		if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet') }
+		else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest') }
+
 		$status = 'Running'
 		foreach ($r in $plan) {
-			if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start      ] [$r]" }
+			Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartResource' -ResourceId $r)
+
 			$resource = $configuration.Resources[$r]
 
 			# Make sure dependencies completed ok.
@@ -92,7 +89,7 @@ function Invoke-DscConfiguration {
 
 			# Temporarily avoid errors for resources that need custom implementation (not a full solution
 			# since dependencies will not be executed).
-			if ($resource.Resource.Name -in ('File', 'Log', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $ModernDSC) {
+			if ($resource.Resource.Name -in ('File', 'WaitForAll', 'WaitForAny', 'WaitForSome') -and $resource.Resource.ModuleName -eq 'PSDesiredStateConfiguration' -and $script:PSDSCAgentEnvironment.PowershellCore) {
 				Write-Warning "Resource $r is of type $($resource.Resource.Name) and cannot be run Powershell Core."
 				$canContinue = $false
 			}
@@ -100,52 +97,36 @@ function Invoke-DscConfiguration {
 			# Test/set only if dependecies are met.
 			if ($canContinue) {
 				try {
-					# Prepare parameters by removing unasable ones.
-					$params = @{}
-					foreach ($p in $resource.Parameters.Keys) {
-						if ($p -ne 'DependsOn') {
-							$params[$p] = $resource.Parameters[$p]
-						}
-					}
-
-					# Modern DSC supports verbose.
-					if ($ModernDSC -and (($PSCmdlet.MyInvocation.BoundParameters['Verbose'].IsPresent) -or $VerbosePreference -eq 'Continue')) {
-						$params['Verbose'] = $true
-					}
-
-					# Prepare module information.
-					$module = @{ ModuleName = $resource.Resource.ModuleName; ModuleVersion = $resource.Resource.ModuleVersion }
-					# If module is default PSDesiredStateConfiguration, make it a string as using a hashmap
-					# can create issues with versions and PsDscRunAsCredential.
-					if ($module['ModuleName'] -eq 'PSDesiredStateConfiguration') {
-						$module = 'PSDesiredStateConfiguration'
-					}
+					$resourceStart = Get-Date
 
 					# Test the status of the resource.
-					if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Test ] [$r]" }
-					$test = Invoke-DscResource -Name $resource.Resource.Name -ModuleName $module -Method Test -Property $params -ErrorAction Stop
+					Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartTest' -ResourceId $r)
+					$test = Invoke-WrappedDscResource -Resource $resource -Method 'Test' -JobId $jobId -ErrorAction Stop
 
-					if (!$test.InDesiredState) {
+					$resourceEnd = Get-Date
+					$timeDiff = $resourceEnd - $resourceStart
+
+					if (!$test) {
 						$execution[$r].Status = 'Failed'
 
-						if ($PowershellCore) {
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is not in desired state."
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
-						}
+						Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
 
 						if ($Mode -eq 'Apply') {
-							# If the resource has drifted, invoke it with set.
-							if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ Start Set  ] [$r]" }
-							$set = Invoke-DscResource -Name $resource.Resource.Name -ModuleName $module -Method Set -Property $params -ErrorAction Stop
+							$resourceStart = Get-Date
 
+							# If the resource has drifted, invoke it with set.
+							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'StartSet' -ResourceId $r)
+							$reboot = Invoke-WrappedDscResource -Resource $resource -Method 'Set' -JobId $jobId -ErrorAction Stop
+
+							#TODO: make sure everything is actually ok
 							$execution[$r].Status = 'Ok'
 
-							if ($PowershellCore) {
-								Write-Verbose "[$($configuration.Metadata.Name)] [ End   Set  ] [$r] Resource has been set to desired state."
-								Write-Verbose "[$($configuration.Metadata.Name)] [ End   Set  ] [$r]"
-							}
+							$resourceEnd = Get-Date
+							$timeDiff = $resourceEnd - $resourceStart
 
-							if ($set.RebootRequired) {
+							Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -ResourceId $r -TimeSpan $timeDiff)
+
+							if ($reboot) {
 								# If reboot is required, reboot according to the configuration.
 								#TODO
 								$execution[$r].RebootRequired = $true
@@ -157,10 +138,8 @@ function Invoke-DscConfiguration {
 					else {
 						$execution[$r].Status = 'Ok'
 
-						if ($PowershellCore) {
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r]"
-							Write-Verbose "[$($configuration.Metadata.Name)] [ End   Test ] [$r] Resource is in desired state."
-						}
+						Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -ResourceId $r -TimeSpan $timeDiff)
+						Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'SkipSet' -ResourceId $r)
 					}
 				}
 				catch {
@@ -175,8 +154,13 @@ function Invoke-DscConfiguration {
 				$status = 'Failed'
 			}
 
-			if ($PowershellCore) { Write-Verbose "[$($configuration.Metadata.Name)] [ End        ] [$r]" }
+			Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndResource' -ResourceId $r)
 		}
+
+		$totalEnd = Get-Date
+		$timeDiff = $totalEnd - $totalStart
+		if ($Mode -eq 'Apply') { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndSet' -TimeSpan $timeDiff) }
+		else { Write-Verbose (Get-LCMLikeVerboseMessage -Phase 'EndTest' -TimeSpan $timeDiff) }
 
 		if ($status -eq 'Failed') {
 			Write-Error 'Invoke-DscConfiguration failed.'
@@ -193,6 +177,12 @@ function Invoke-DscConfiguration {
 				}
 			}
 
+			#TODO: validation must behave like LCM, thus return a pscustomobject like this:
+			#InDesiredState             : bool
+			#ResourcesInDesiredState    : @(<list of resource ids (format: [<type>]<name>))
+			#ResourcesNotInDesiredState : @(<list of resource ids (format: [<type>]<name>))
+			#ReturnValue                : int (0 if no errors)
+			#PSComputerName             : string (localhost since there is no remote capability yet)
 			return $true
 		}
 	}

@@ -4,7 +4,7 @@ TODO: help
 function Get-DscResourceSequentialSorting {
 	[CmdletBinding()]
 	[OutputType([System.Object[]])]
-	Param(
+	Param (
 		[Parameter(Mandatory = $true)]
 		[ValidateScript(
 			{

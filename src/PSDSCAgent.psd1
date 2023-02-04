@@ -12,7 +12,7 @@
 	RootModule = 'PSDSCAgent.psm1'
 
 	# Version number of this module.
-	ModuleVersion = '0.0.0'
+	ModuleVersion = '0.2.0'
 
 	# ID used to uniquely identify this module
 	GUID = 'fba6ccf6-8ea3-46ed-8d00-413e73ef20ab'
@@ -65,17 +65,23 @@
 	# Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
 	# NestedModules = @()
 
-	# Functions to export from this module
+	# Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
+	#TODO: get rid of *
 	FunctionsToExport = '*'
 
-	# Cmdlets to export from this module
-	CmdletsToExport = '*'
+	# Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
+	CmdletsToExport   = @()
 
 	# Variables to export from this module
-	VariablesToExport = '*'
+	VariablesToExport = @()
 
-	# Aliases to export from this module
-	AliasesToExport = '*'
+	# Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
+	AliasesToExport   = @()
+
+	# DSC resources to export from this module
+	DscResourcesToExport = @(
+		'PSDSCLog'
+	)
 
 	# List of all modules packaged with this module
 	# ModuleList = @()
