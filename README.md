@@ -15,7 +15,7 @@ Details will be added as the agent is developed.
 
 ## Usage
 
-This module is still in the very early stages of development. So far it exposes only a limited Invoke-DscConfiguration command, which can be called from Powershell 5.1 and Powershell 7+. There are still several limitations on what it can run (for example the File and Log resources are not available in Powershell 7+ if you are using PSDesiredStateConfiguration 2+) and probably an uncountable number of bugs (if you find some, report them, mush appreciated!)
+This module is still in the very early stages of development. So far it exposes only a limited Invoke-DscConfiguration command, which can be called from Powershell 5.1 and Powershell 7+. There are still several limitations on what it can run (for example the Wait* resources are not available in Powershell 7+ if you are using PSDesiredStateConfiguration 2+) and probably an uncountable number of bugs (if you find some, report them, mush appreciated!)
 
 ### Examples
 
@@ -43,4 +43,10 @@ Invoke-DscConfiguration -MofFilePath .\baseline.mof -Mode Validate -Verbose
 
 ### Note
 
-Using this module on Windows Powershell requires that custom resources, as well as this module, be either in `C:\Program Files\WindowsPowerShell\Modules` or `C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules`. Other paths, like the user's personal modules folder in Documents might generate errors even if `SYSTEM` has full control.
+Using this module on Windows Powershell requires that custom resources be either in `C:\Program Files\WindowsPowerShell\Modules` or `C:\WINDOWS\system32\WindowsPowerShell\v1.0\Modules`. Other paths, like the user's personal modules folder in Documents might generate errors even if `SYSTEM` has full control. This module can be in other folders, as long as you don't use the Log resource.
+
+Also, you need to run an elevated shell if you are using Windows Powershell, as WMI requires administrative privileges.
+
+### Note
+
+When using `PSDesiredConfiguration v2+` (on Powershell Core) binary DSC resources File and Log are not available. This module re-implements them internally and detects original usage, deviating it to the internal implementation. The usage should be transparent. In the future, this behavior should be transparent also on compilation of DSC configurations on Powershell Core.

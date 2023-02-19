@@ -1,0 +1,19 @@
+﻿[ClassVersion("1.0.0"), FriendlyName("PSDSCFile")]
+class PSDSCFile : OMI_BaseResource
+{
+  [Key, Description("The location, on the target node, you want to ensure is Present or Absent with Ensure.")] String DestinationPath;
+  [Write, Description("The desired state of the attributes for the targeted file or directory. Valid values are Archive, Hidden, ReadOnly, and System."), ValueMap{"Archive", "Hidden", "ReadOnly", "System"}, Values{"Archive", "Hidden", "ReadOnly", "System"}] String Attributes[];
+  [Write, Description("The checksum type to use when determining whether two files are the same. Valid values include: SHA-1, SHA-256, SHA-512, createdDate, modifiedDate."), ValueMap{"CreatedDate", "ModifiedDate", "SHA-1", "SHA-256", "SHA-512"}, Values{"CreatedDate", "ModifiedDate", "SHA-1", "SHA-256", "SHA-512"}] String Checksum;
+  [Write, Description("Only valid when used with Type File. Indicates the contents to Ensure are Present or Absent from the targeted file.")] String Contents;
+  [Write, Description("The credentials that are required to access resources, such as source files."), EmbeddedInstance("MSFT_Credential")] String Credential;
+  [Write, Description("Determines whether the file and Contents at the Destination should exist or not. Set this property to Present to ensure the file exists. Set it to Absent to ensure they do not exist. The default value is Present."), ValueMap{"Absent", "Present"}, Values{"Absent", "Present"}] String Ensure;
+  [Write, Description("Overrides access operations that would result in an error (such as overwriting a file or deleting a directory that is not empty). Default value is $false.")] Boolean Force;
+  [Write, Description("Only valid when used with Type Directory. Performs the state operation recursively to all directory content, subdirectories, and subdirectory content. Default value is $false.")] Boolean Recurse;
+  [Write, Description("The path from which to copy the file or folder resource.")] String SourcePath;
+  [Write, Description("The type of resource being configured. Valid values are Directory and File. Default value is File."), ValueMap{"Directory", "File"}, Values{"Directory", "File"}] String Type;
+  [Write, Description("Determines if the resource should monitor for new files added to the source directory after the initial copy. A value of $true indicates that, after the initial copy, any new source files should be copied to the destination. If set to $false, the resource caches the contents of the source directory and ignores any files added after the initial copy. Default value is $false.")] Boolean MatchSource;
+  [Read] Uint64 Size;
+  [Read] DateTime CreatedDate;
+  [Read] DateTime ModifiedDate;
+  [Read] String SubItems[];
+};
