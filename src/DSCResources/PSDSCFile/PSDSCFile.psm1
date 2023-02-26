@@ -138,6 +138,42 @@ function Set-TargetResource {
 
 		[bool]$MatchSource = $false
 	)
+
+	# Handling a single file.
+	if ($Type -eq 'File') {
+		if ($PSBoundParameters.ContainsKey('SourcePath') -and $PSBoundParameters.ContainsKey('Contents')) {
+			#TODO: throw?
+		}
+
+		# Copy from source.
+		if ($PSBoundParameters.ContainsKey('SourcePath')) {
+			#TODO
+		}
+		# Create with content.
+		elseif ($PSBoundParameters.ContainsKey('Contents')) {
+			#TODO
+		}
+		# Just ensure present or absent.
+		else {
+			#TODO
+		}
+	}
+
+	# Handling a directory.
+	else {
+		if ($PSBoundParameters.ContainsKey('Contents')) {
+			#TODO: throw?
+		}
+
+		# Copy from source.
+		if ($PSBoundParameters.ContainsKey('SourcePath')) {
+			#TODO
+		}
+		# Just ensure present or absent.
+		else {
+			#TODO
+		}
+	}
 }
 
 <#
@@ -181,6 +217,42 @@ function Test-TargetResource {
 
 		[bool]$MatchSource = $false
 	)
+
+	# Handling a single file.
+	if ($Type -eq 'File') {
+		if ($PSBoundParameters.ContainsKey('SourcePath') -and $PSBoundParameters.ContainsKey('Contents')) {
+			#TODO: throw?
+		}
+
+		# Copy from source.
+		if ($PSBoundParameters.ContainsKey('SourcePath')) {
+			#TODO
+		}
+		# Create with content.
+		elseif ($PSBoundParameters.ContainsKey('Contents')) {
+			#TODO
+		}
+		# Just ensure present or absent.
+		else {
+			#TODO
+		}
+	}
+
+	# Handling a directory.
+	else {
+		if ($PSBoundParameters.ContainsKey('Contents')) {
+			#TODO: throw?
+		}
+
+		# Copy from source.
+		if ($PSBoundParameters.ContainsKey('SourcePath')) {
+			#TODO
+		}
+		# Just ensure present or absent.
+		else {
+			#TODO
+		}
+	}
 
 	return $true
 }
