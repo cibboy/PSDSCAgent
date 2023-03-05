@@ -1,5 +1,40 @@
 ﻿<#
 .SYNOPSIS
+Creates a new PSDrive for later use, using a standard name, or removes it.
+#>
+function HandleSource {
+	[CmdletBinding()]
+	Param (
+		[Parameter(Mandatory = $true)]
+		[ValidateSet('Map', 'Unmap')]
+		[string]$Operation,
+
+		[string]$SourcePath,
+
+		[PsCredential]$Credential
+	)
+
+	if ($Operation -eq 'Map') {
+		$params = @{
+			Name = '__PSDSCFile'
+			PSProvider = 'FileSystem'
+			Root = $SourcePath
+			Verbose = $false
+		}
+		if ($null -ne $Credential -and $Credential -ne [PsCredential]::Empty) {
+			$params['Credential'] = $Credential
+		}
+
+		$null = New-PSDrive @params
+	}
+
+	else {
+		Remove-PSDrive -Name '__PSDSCFile'
+	}
+}
+
+<#
+.SYNOPSIS
 Get method for the resource. It gets some basic information about the specified path.
 #>
 function Get-TargetResource {
@@ -218,6 +253,8 @@ function Test-TargetResource {
 		[bool]$MatchSource = $false
 	)
 
+	#TODO: how do Attributes get in the mix? (the get ignored with ensure absent as per documentation)
+
 	# Handling a single file.
 	if ($Type -eq 'File') {
 		if ($PSBoundParameters.ContainsKey('SourcePath') -and $PSBoundParameters.ContainsKey('Contents')) {
@@ -226,15 +263,69 @@ function Test-TargetResource {
 
 		# Copy from source.
 		if ($PSBoundParameters.ContainsKey('SourcePath')) {
-			#TODO
+			$sourceFolder = Split-Path $SourcePath
+			$fileName = Split-Path $SourcePath -Leaf
+
+			# Map source folder.
+			HandleSource -Operation Map -SourcePath $sourceFolder -Credential $Credential
+
+			#TODO: what happens if the source file is missing using the original resource?
+
+			$sourceCheck = $null
+			$destinationCheck = $null
+
+			#TODO: what's the default value of checkum?
+			# For SHA-* checksums, get source and destination checksum.
+			if ($Checksum -in @('SHA-1', 'SHA-256', 'SHA-512')) {
+				$sourceCheck = (Get-FileHash "__PSDSCFile:\$fileName" -Algorithm $Checksum).Hash
+				$destinationCheck = (Get-FileHash $DestinationPath -Algorithm $Checksum).Hash
+			}
+			# Otherwise get source and destination date (creation or last edit).
+			else {
+				$sourceItem = Get-Item "__PSDSCFile:\$fileName"
+				$destinationItem = Get-Item $DestinationPath
+
+				if ($Checksum -eq 'CreatedDate') {
+					$sourceCheck = $sourceItem.CreationTimeUtc
+					$destinationCheck = $destinationItem.CreationTimeUtc
+				}
+				else {
+					$sourceCheck = $sourceItem.LastWriteTimeUtc
+					$destinationCheck = $destinationItem.LastWriteTimeUtc
+				}
+			}
+
+			$ret = ($sourceCheck -eq $destinationCheck)
+
+			# Unmap source folder.
+			HandleSource -Operation Unmap
+
+			return $ret
 		}
 		# Create with content.
 		elseif ($PSBoundParameters.ContainsKey('Contents')) {
-			#TODO
+			$present = Test-Path $DestinationPath
+
+			if ($Ensure -eq 'Absent' -and $present) { return $false } #TODO: what happens in this scenario in the original resource?
+
+			if ($Ensure -eq 'Present') {
+				if (!$present) { return $false }
+				else {
+					$content = Get-Content $DestinationPath -Raw
+					return ($content -eq $Contents)
+				}
+			}
+
+			return $true
 		}
 		# Just ensure present or absent.
 		else {
-			#TODO
+			$present = Test-Path $DestinationPath
+
+			if ($Ensure -eq 'Present' -and !$present) { return $false }
+			if ($Ensure -eq 'Absent' -and $present) { return $false }
+
+			return $true
 		}
 	}
 
@@ -246,11 +337,20 @@ function Test-TargetResource {
 
 		# Copy from source.
 		if ($PSBoundParameters.ContainsKey('SourcePath')) {
+			HandleSource -Operation Map -SourcePath $SourcePath -Credential $Credential
+
 			#TODO
+
+			HandleSource -Operation Unmap
 		}
 		# Just ensure present or absent.
 		else {
-			#TODO
+			$present = Test-Path $DestinationPath
+
+			if ($Ensure -eq 'Present' -and !$present) { return $false }
+			if ($Ensure -eq 'Absent' -and $present) { return $false }
+
+			return $true
 		}
 	}
 
