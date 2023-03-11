@@ -183,6 +183,7 @@ function Set-TargetResource {
 		# Copy from source.
 		if ($PSBoundParameters.ContainsKey('SourcePath')) {
 			#TODO
+			# If the source is missing, throw
 		}
 		# Create with content.
 		elseif ($PSBoundParameters.ContainsKey('Contents')) {
@@ -203,6 +204,7 @@ function Set-TargetResource {
 		# Copy from source.
 		if ($PSBoundParameters.ContainsKey('SourcePath')) {
 			#TODO
+			# If the source is missing, create the destination folder and don't throw
 		}
 		# Just ensure present or absent.
 		else {
@@ -253,78 +255,101 @@ function Test-TargetResource {
 		[bool]$MatchSource = $false
 	)
 
-	#TODO: how do Attributes get in the mix? (the get ignored with ensure absent as per documentation)
+	# Order of importance: present/absent > source/content > checksum > attributes
+
+	#TODO: how do Attributes get in the mix? (they get ignored with ensure absent as per documentation)
+	#TODO: add proper verbose output.
+
+	$presentDestination = Test-Path $DestinationPath
+
+	# Basic checks: cross Ensure-present/absent.
+	if ($Ensure -eq 'Present' -and !$presentDestination) { return $false }
+	if ($Ensure -eq 'Absent' -and $presentDestination) { return $false }
 
 	# Handling a single file.
 	if ($Type -eq 'File') {
 		if ($PSBoundParameters.ContainsKey('SourcePath') -and $PSBoundParameters.ContainsKey('Contents')) {
-			#TODO: throw?
+			#TODO: throw
 		}
 
-		# Copy from source.
-		if ($PSBoundParameters.ContainsKey('SourcePath')) {
-			$sourceFolder = Split-Path $SourcePath
-			$fileName = Split-Path $SourcePath -Leaf
+		# If present and Ensure is 'Present', continue with checks.
+		if ($Ensure -eq 'Present' -and $presentDestination) {
+			# Copy from source.
+			if ($PSBoundParameters.ContainsKey('SourcePath')) {
+				$sourceFolder = Split-Path $SourcePath
+				$fileName = Split-Path $SourcePath -Leaf
 
-			# Map source folder.
-			HandleSource -Operation Map -SourcePath $sourceFolder -Credential $Credential
+				# Map source folder.
+				HandleSource -Operation Map -SourcePath $sourceFolder -Credential $Credential
 
-			#TODO: what happens if the source file is missing using the original resource?
+				$source = "__PSDSCFile:\$fileName"
+				$presentSource = Test-Path $source
 
-			$sourceCheck = $null
-			$destinationCheck = $null
+				$ret = $false
 
-			#TODO: what's the default value of checkum?
-			# For SHA-* checksums, get source and destination checksum.
-			if ($Checksum -in @('SHA-1', 'SHA-256', 'SHA-512')) {
-				$sourceCheck = (Get-FileHash "__PSDSCFile:\$fileName" -Algorithm $Checksum).Hash
-				$destinationCheck = (Get-FileHash $DestinationPath -Algorithm $Checksum).Hash
+				# Further checks can be avoided if the source is not present.
+				if ($presentSource) {
+					$sourceCheck = $null
+					$destinationCheck = $null
+
+					# No checksum requested: based on file name presence/absence.
+					if ($null -eq $Checksum -or $Checksum -eq '') {
+						$sourceCheck = $presentSource
+						$destinationCheck = $presentDestination
+					}
+					# For SHA-* checksums, get source and destination checksum.
+					elseif ($Checksum -in @('SHA-1', 'SHA-256', 'SHA-512')) {
+						$sourceCheck = (Get-FileHash $source -Algorithm $Checksum).Hash
+						$destinationCheck = (Get-FileHash $DestinationPath -Algorithm $Checksum).Hash
+					}
+					# Otherwise get source and destination date (creation or last edit).
+					else {
+						$sourceItem = Get-Item $source
+						$destinationItem = Get-Item $DestinationPath
+
+						if ($Checksum -eq 'CreatedDate') {
+							$sourceCheck = $sourceItem.CreationTimeUtc
+							$destinationCheck = $destinationItem.CreationTimeUtc
+						}
+						else {
+							$sourceCheck = $sourceItem.LastWriteTimeUtc
+							$destinationCheck = $destinationItem.LastWriteTimeUtc
+						}
+					}
+
+					$ret = ($sourceCheck -eq $destinationCheck)
+				}
+
+				# Unmap source folder.
+				HandleSource -Operation Unmap
+
+				return $ret
 			}
-			# Otherwise get source and destination date (creation or last edit).
+			# Create with content.
+			elseif ($PSBoundParameters.ContainsKey('Contents')) {
+				$present = Test-Path $DestinationPath
+
+				# If Contents is specified, but Ensure is 'Absent', Ensure wins.
+				if ($Ensure -eq 'Absent' -and $present) { return $false }
+
+				if ($Ensure -eq 'Present') {
+					if (!$present) { return $false }
+					else {
+						$content = Get-Content $DestinationPath -Raw
+						return ($content -eq $Contents)
+					}
+				}
+
+				return $true
+			}
+			# Only Ensure 'Present'; already checked.
 			else {
-				$sourceItem = Get-Item "__PSDSCFile:\$fileName"
-				$destinationItem = Get-Item $DestinationPath
-
-				if ($Checksum -eq 'CreatedDate') {
-					$sourceCheck = $sourceItem.CreationTimeUtc
-					$destinationCheck = $destinationItem.CreationTimeUtc
-				}
-				else {
-					$sourceCheck = $sourceItem.LastWriteTimeUtc
-					$destinationCheck = $destinationItem.LastWriteTimeUtc
-				}
+				return $true
 			}
-
-			$ret = ($sourceCheck -eq $destinationCheck)
-
-			# Unmap source folder.
-			HandleSource -Operation Unmap
-
-			return $ret
 		}
-		# Create with content.
-		elseif ($PSBoundParameters.ContainsKey('Contents')) {
-			$present = Test-Path $DestinationPath
 
-			if ($Ensure -eq 'Absent' -and $present) { return $false } #TODO: what happens in this scenario in the original resource?
-
-			if ($Ensure -eq 'Present') {
-				if (!$present) { return $false }
-				else {
-					$content = Get-Content $DestinationPath -Raw
-					return ($content -eq $Contents)
-				}
-			}
-
-			return $true
-		}
-		# Just ensure present or absent.
+		# Otherwise requesting absent and the file is absent.
 		else {
-			$present = Test-Path $DestinationPath
-
-			if ($Ensure -eq 'Present' -and !$present) { return $false }
-			if ($Ensure -eq 'Absent' -and $present) { return $false }
-
 			return $true
 		}
 	}
@@ -332,7 +357,7 @@ function Test-TargetResource {
 	# Handling a directory.
 	else {
 		if ($PSBoundParameters.ContainsKey('Contents')) {
-			#TODO: throw?
+			#TODO: throw
 		}
 
 		# Copy from source.

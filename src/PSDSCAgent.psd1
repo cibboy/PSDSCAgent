@@ -12,7 +12,7 @@
 	RootModule = 'PSDSCAgent.psm1'
 
 	# Version number of this module.
-	ModuleVersion = '0.2.0'
+	ModuleVersion = '0.3.0'
 
 	# ID used to uniquely identify this module
 	GUID = 'fba6ccf6-8ea3-46ed-8d00-413e73ef20ab'

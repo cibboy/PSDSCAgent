@@ -132,6 +132,12 @@ function Invoke-DscConfiguration {
 								$execution[$r].RebootRequired = $true
 								Write-Warning 'Reboot is required.'
 								# Note: if working with PSDesiredStateConfiguration v1, reboot may still be performed by the LCM.
+								<#
+								The process C:\Windows\system32\wbem\wmiprvse.exe (<COMPUTERNAME>) has initiated the restart of computer <COMPUTERNAME> on behalf of user NT AUTHORITY\SYSTEM for the following reason: Application: Maintenance (Planned)
+								Reason Code: 0x80040001
+								Shutdown Type: restart
+								Comment: DSC is restarting the computer.
+								#>
 							}
 						}
 					}
